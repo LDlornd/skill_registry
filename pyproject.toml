@@ -1,0 +1,31 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "skill-registry"
+version = "0.1.0"
+description = "Local skill registry with an HTTP API and resource execution provider"
+readme = "README.md"
+requires-python = ">=3.12"
+license = { file = "LICENSE" }
+dependencies = [
+    "fastapi",
+    "pydantic",
+    "python-dotenv",
+    "python-multipart",
+    "PyYAML",
+    "requests",
+    "starlette",
+    "uvicorn",
+]
+
+[project.scripts]
+skill-registry = "skill_registry.app:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["skill_registry*"]

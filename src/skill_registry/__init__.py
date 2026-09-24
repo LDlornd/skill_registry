@@ -1,0 +1,1 @@
+"""Skill registry service package."""
