@@ -141,7 +141,7 @@ def _load_resource(
             f"Resource not found for skill {skill_name}: {relative_path}"
         )
 
-    return registry.load_resource(skill_name, relative_path)
+    return skill.load_resource(relative_path)
 
 
 @router.post(
