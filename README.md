@@ -34,6 +34,18 @@ uv run skill-registry
 
 `create_app({"SKILLS_DIR": "...", "EXECUTION_PROVIDER": provider})` 可用于嵌入其他服务。默认资源执行器在资源文件所在目录运行脚本；执行 `.py` 文件时使用当前服务的 Python 解释器。
 
+## 技能热更新
+
+服务运行期间会自动重新扫描已注册的技能根目录，默认间隔 1 秒。新增或删除 Skill、修改 `SKILL.md`、新增或删除资源文件后，后续请求会读取更新后的注册表；资源文件的内容本来就是按请求读取，因此内容修改无需等待扫描。通过 `/discover_skills` 添加的目录也会一起自动刷新。
+
+可在启动前设置扫描间隔（秒）：
+
+```powershell
+$env:SKILLS_REFRESH_INTERVAL = '2'
+```
+
+如果扫描时某个 `SKILL.md` 暂时无法解析，服务会保留上一次完整快照，并在下一轮重试。此功能刷新的是 Skill 文件及注册表；修改注册中心自身的 Python 代码仍需重启服务。
+
 ## 项目结构
 
 ```text

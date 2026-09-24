@@ -12,6 +12,7 @@ license = { file = "LICENSE" }
 dependencies = [
     "dotenv>=0.9.9",
     "fastapi",
+    "loguru>=0.7.3",
     "pydantic",
     "python-dotenv",
     "python-multipart",

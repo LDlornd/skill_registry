@@ -1,7 +1,11 @@
 from __future__ import annotations
 
+from loguru import logger
+import math
 import os
+from contextlib import asynccontextmanager
 from pathlib import Path
+from threading import Event, Thread
 from typing import Any
 
 import uvicorn
@@ -27,13 +31,48 @@ OPENAPI_TAGS = [
 ]
 
 
+def _refresh_loop(registry: SkillRegistry, stop: Event, interval: float) -> None:
+    while not stop.wait(interval):
+        try:
+            registry.refresh()
+        except Exception:
+            # 保留上一次完整的技能快照，下一轮继续尝试。
+            logger.exception("Failed to refresh skill directories")
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    stop = Event()
+    worker = Thread(
+        target=_refresh_loop,
+        args=(
+            app.state.skill_registry,
+            stop,
+            app.state.config["SKILLS_REFRESH_INTERVAL"],
+        ),
+        name="skill-registry-refresh",
+        daemon=True,
+    )
+    worker.start()
+    try:
+        yield
+    finally:
+        stop.set()
+        worker.join(timeout=5)
+
+
 def create_app(config: dict[str, Any] | None = None) -> FastAPI:
     settings: dict[str, Any] = {
         "SKILLS_DIR": os.getenv("SKILLS_DIR", str(Path.cwd() / ".skills")),
+        "SKILLS_REFRESH_INTERVAL": os.getenv("SKILLS_REFRESH_INTERVAL", "1"),
         "EXECUTION_PROVIDER": None,
     }
     if config:
         settings.update(config)
+    interval = float(settings["SKILLS_REFRESH_INTERVAL"])
+    if not math.isfinite(interval) or interval <= 0:
+        raise ValueError("SKILLS_REFRESH_INTERVAL must be a finite number greater than 0")
+    settings["SKILLS_REFRESH_INTERVAL"] = interval
 
     app = FastAPI(
         title="技能注册表 API",
@@ -43,6 +82,7 @@ def create_app(config: dict[str, Any] | None = None) -> FastAPI:
         ),
         version="1.0.0",
         openapi_tags=OPENAPI_TAGS,
+        lifespan=_lifespan,
     )
     app.state.config = settings
     app.state.skill_registry = SkillRegistry(

@@ -172,7 +172,7 @@ async def discover_skills(request: Request) -> dict[str, Any]:
         raise ValueError("root_dir must be a non-empty string")
 
     registry = _registry(request)
-    registry.discover_skills(root_dir.strip())
+    await run_in_threadpool(registry.discover_skills, root_dir.strip())
     skills = registry.search_skills("")
     return {"count": len(skills), "skills": skills}
 

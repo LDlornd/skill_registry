@@ -1,6 +1,7 @@
 import os
 import re
 from pathlib import Path
+from threading import Lock
 from typing import Dict, Sequence
 
 from .expection import (
@@ -138,6 +139,8 @@ class SkillRegistry:
         execution_provider: SkillExecutionProvider | None = None,
     ):
         self.skills: Dict[str, Skill] = {}
+        self._roots: dict[str, dict[str, Skill]] = {}
+        self._scan_lock = Lock()
         self.execution_provider = (
             execution_provider
             if execution_provider is not None
@@ -156,15 +159,37 @@ class SkillRegistry:
 
     def discover_skills(self, root_dir: str):
         """
-        只有目录同时包含 SKILL.md 和 skill.manifest.yaml 时，
-        才将该目录识别为一个 skill 根目录。
-
-        Skill 根目录下的其它文件和目录均作为资源处理，
-        不再继续向下发现嵌套 skill。
+        扫描并注册一个根目录。再次扫描时同步移除已删除的 Skill。
         """
+        root_dir = str(Path(root_dir).resolve())
+        with self._scan_lock:
+            discovered = self._scan_root(root_dir)
+            # 后注册的根目录在技能重名时优先，和原有的覆盖行为一致。
+            self._roots.pop(root_dir, None)
+            self._roots[root_dir] = discovered
+            self._publish_snapshot()
+
+    def refresh(self) -> None:
+        """重新扫描全部已注册根目录，并一次性发布新的技能快照。"""
+        with self._scan_lock:
+            refreshed = {
+                root_dir: self._scan_root(root_dir)
+                for root_dir in self._roots
+            }
+            self._roots = refreshed
+            self._publish_snapshot()
+
+    def _publish_snapshot(self) -> None:
+        skills: Dict[str, Skill] = {}
+        for root_skills in self._roots.values():
+            skills.update(root_skills)
+        self.skills = skills
+
+    def _scan_root(self, root_dir: str) -> dict[str, Skill]:
+        """Skill 目录下的其它文件是资源，不继续发现嵌套 Skill。"""
+        discovered: dict[str, Skill] = {}
         required_files = {
             self.SKILL_FILENAME,
-            # self.SKILL_MANIFEST_FILENAME,
         }
 
         for root, dirs, files in os.walk(root_dir):
@@ -173,11 +198,13 @@ class SkillRegistry:
 
             new_skill = Skill.from_root(root)
 
-            self.skills[new_skill.skill_name] = new_skill
+            discovered[new_skill.skill_name] = new_skill
 
             # 当前目录已经是 skill 根目录，不再扫描其 references、
             # scripts、assets 等子目录。
             dirs[:] = []
+
+        return discovered
 
     def search_skills(self, query: str, exposed_skills: list[str] | None = None) -> list[str]:
         """
