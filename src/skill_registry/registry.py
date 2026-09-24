@@ -206,23 +206,18 @@ class SkillRegistry:
 
         return discovered
 
-    def search_skills(self, query: str, exposed_skills: list[str] | None = None) -> list[str]:
+    def search_skills(self, query: str, exposed_skills: list[str] | None = None) -> list[dict]:
         """
-        搜索 skill, 返回 skill 名称列表
-        如果用户没有指定 skill, 返回全部 skill。
-        如果用户指定了 skill, 返回指定 skill 名称的 skill。
+        返回技能摘要；exposed_skills 可限制允许返回的技能。
         """
-
-        # 初版返回全部 skill
         if not exposed_skills:
-            skill_list = self.skills
-        else:
-            skill_list = []
-            for skill in self.skills:
-                if skill.skill_name in exposed_skills:
-                    skill_list.append(skill)
-
-        return self.format_skill_meta(skill_list)
+            return [skill.format_meta() for skill in self.skills.values()]
+        allowed_names = set(exposed_skills)
+        return [
+            skill.format_meta()
+            for name, skill in self.skills.items()
+            if name in allowed_names
+        ]
 
     def load_skill(self, skill_name: str) -> str:
         """加载 skill 的 SKILL.md 正文（入口文档，第一步该看的内容）"""
