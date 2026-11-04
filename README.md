@@ -97,3 +97,39 @@ skill_registry/
         ├── routes.py
         └── execution/
 ```
+
+## Docker 部署
+
+Dockerfile 直接安装 `skill-registry` Python 包，不进行 Nuitka 编译。构建上下文只包含项目安装需要的 `pyproject.toml`、`README.md`、`LICENSE` 和 `src/`。技能文件不打入镜像；启动时用 bind mount 将 **Docker 主机**上的技能目录挂载为容器内的 `/skills`，服务通过 `SKILLS_DIR=/skills` 扫描它。`HOST_SKILLS_DIR` 必须是 Docker 主机上已存在的绝对路径。每个技能目录需要有 `SKILL.md`，例如 `/srv/skills/my-skill/SKILL.md`。
+
+在项目目录构建并启动本地镜像（PowerShell）：
+
+```powershell
+cd E:\lornd\skill_registry
+docker build -t skill-registry:local .
+$env:HOST_SKILLS_DIR = 'E:\path\to\skills'
+docker compose up -d
+Invoke-RestMethod http://127.0.0.1:5000/search_skills
+```
+
+如果 Docker 运行在 Linux 服务器上，可只把 `compose.yaml` 放到服务器，再指定已推送的镜像和服务器上的技能目录：
+
+```sh
+export REGISTRY_IMAGE='your-dockerhub-user/skill-registry:0.1.0'
+export HOST_SKILLS_DIR='/srv/skills'
+docker compose up -d
+```
+
+服务默认只在 Docker 主机的 `127.0.0.1:5000` 提供服务，文档位于 `http://127.0.0.1:5000/docs`。可用 `REGISTRY_PORT` 修改主机端口。现有 API 没有鉴权，并提供 `/discover_skills` 和 `/execute_resource`；若要从别的机器访问，应先设置网络访问控制或带鉴权的反向代理，再将 `REGISTRY_BIND_ADDRESS` 设为 `0.0.0.0`。
+
+挂载默认只读。容器以 UID 10001 运行，主机目录及文件需要允许该用户读取，目录还需要允许遍历。技能脚本不能写入 `/skills`；如需写文件，应另行挂载输出目录并配置权限。技能目录变动仍由现有自动刷新机制读取。`.py` 技能资源会使用容器内运行服务的 Python 解释器执行。
+
+如需把镜像推送到 Docker Hub，可在构建后执行：
+
+```powershell
+docker login
+docker tag skill-registry:local your-dockerhub-user/skill-registry:0.1.0
+docker push your-dockerhub-user/skill-registry:0.1.0
+```
+
+**源码可见性：**最终镜像包含 `skill_registry` 的 `.py` 模块。`.dockerignore` 排除了 `.env` 等无关构建文件，技能目录也未打入镜像，但公开镜像的拉取者可以查看注册中心源码。若源码不应公开，请使用 Docker Hub 私有仓库或其他私有镜像仓库。

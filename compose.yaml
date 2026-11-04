@@ -1,0 +1,18 @@
+services:
+  skill-registry:
+    image: ${REGISTRY_IMAGE:-skill-registry:local}
+    environment:
+      SKILLS_DIR: /skills
+      SKILLS_REFRESH_INTERVAL: ${SKILLS_REFRESH_INTERVAL:-1}
+      HOST: 0.0.0.0
+      PORT: 5000
+    ports:
+      - "${REGISTRY_BIND_ADDRESS:-127.0.0.1}:${REGISTRY_PORT:-5000}:5000"
+    volumes:
+      - type: bind
+        source: ${HOST_SKILLS_DIR:?Set HOST_SKILLS_DIR to an absolute path on the Docker host}
+        target: /skills
+        read_only: true
+        bind:
+          create_host_path: false
+    restart: unless-stopped
