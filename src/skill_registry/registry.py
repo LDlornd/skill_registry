@@ -108,11 +108,26 @@ class Skill:
         skill_root = os.path.realpath(self.root_dir)
         target = os.path.realpath(os.path.join(skill_root, relative_path))
 
-        if os.path.commonpath([skill_root, target]) != skill_root:
-            return f"ERROR: Resource path escapes skill root: {relative_path}"
+        try:
+            is_inside_skill = os.path.commonpath([skill_root, target]) == skill_root
+        except ValueError:
+            is_inside_skill = False
 
+        if not is_inside_skill:
+            raise InvalidResourcePathError(
+                f"Resource path escapes skill root: {relative_path}. "
+                "load_resource only reads files within the selected skill directory."
+            )
+        if os.path.isdir(target):
+            raise IsADirectoryError(
+                f"Resource path is a directory for skill {self.skill_name}: {relative_path!r}. "
+                "Choose a file path from /load_skill skill.resources."
+            )
         if not os.path.isfile(target):
-            return f"ERROR: {relative_path} is not a file"
+            raise ResourceNotFoundError(
+                f"Resource not found for skill {self.skill_name}: {relative_path}. "
+                "Choose a file path from /load_skill skill.resources."
+            )
 
         with open(target, "r", encoding="utf-8") as f:
             return f.read()

@@ -53,12 +53,32 @@ class LoadSkillResponse(BaseModel):
     skill: LoadedSkill = Field(description="已加载的技能。")
 
 
-class LoadResourceResponse(BaseModel):
-    """加载技能资源接口的返回值。"""
+class ErrorDetail(BaseModel):
+    """错误的机器可读代码和中文或英文详情。"""
 
-    skill_name: str = Field(description="资源所属的技能名称。")
-    relative_path: str = Field(description="资源相对于技能根目录的路径。")
-    content: str = Field(description="资源文件的 UTF-8 文本内容。")
+    code: str = Field(
+        description="稳定的机器可读错误代码。",
+        examples=["skill_not_found"],
+    )
+    message: str = Field(description="便于定位问题的错误详情。")
+
+
+class LoadResourceResponse(BaseModel):
+    """资源读取的业务结果；成功和失败均通过 HTTP 200 返回。"""
+
+    success: bool = Field(description="是否成功读取资源文件。")
+    skill_name: str | None = Field(
+        default=None, description="资源所属的技能名称；参数缺失时为 null。"
+    )
+    relative_path: str | None = Field(
+        default=None, description="资源相对于技能根目录的路径；参数缺失时为 null。"
+    )
+    content: str | None = Field(
+        default=None, description="成功时为 UTF-8 文本（允许空字符串），失败时为 null。"
+    )
+    error: ErrorDetail | None = Field(
+        default=None, description="失败时的错误代码和详情；成功时为 null。"
+    )
 
 
 class ExecuteResourceRequest(BaseModel):
@@ -99,16 +119,6 @@ class ExecuteResourceResponse(BaseModel):
     stderr: str = Field(description="进程的标准错误输出。")
     timed_out: bool = Field(description="执行是否因超时而终止。")
     duration_ms: int = Field(description="执行耗时，单位为毫秒。")
-
-
-class ErrorDetail(BaseModel):
-    """错误的机器可读代码和中文或英文详情。"""
-
-    code: str = Field(
-        description="稳定的机器可读错误代码。",
-        examples=["skill_not_found"],
-    )
-    message: str = Field(description="便于定位问题的错误详情。")
 
 
 class ErrorResponse(BaseModel):

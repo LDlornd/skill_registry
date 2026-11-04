@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import os
 import json
 from http import HTTPStatus
 from typing import Any
@@ -22,6 +21,7 @@ from .expection import (
     SkillNotFoundError,
 )
 from .models import (
+    ErrorDetail,
     ErrorResponse,
     ExecuteResourceResponse,
     LoadResourceResponse,
@@ -124,23 +124,6 @@ def _load_resource(
     relative_path: str,
 ) -> str:
     skill = _skill(registry, skill_name)
-    skill_root = os.path.realpath(skill.root_dir)
-    target = os.path.realpath(os.path.join(skill_root, relative_path))
-
-    try:
-        is_inside_skill = os.path.commonpath([skill_root, target]) == skill_root
-    except ValueError:
-        is_inside_skill = False
-
-    if not is_inside_skill:
-        raise InvalidResourcePathError(
-            f"Resource path escapes skill root: {relative_path}"
-        )
-    if not os.path.isfile(target):
-        raise ResourceNotFoundError(
-            f"Resource not found for skill {skill_name}: {relative_path}"
-        )
-
     return skill.load_resource(relative_path)
 
 
@@ -280,34 +263,55 @@ async def load_skill(request: Request) -> dict[str, Any]:
     summary="加载技能资源",
     description=(
         "读取指定技能下的一个 UTF-8 文本资源。路径会经过边界检查，"
-        "不能访问技能根目录之外的文件。"
+        "不能访问技能根目录之外的文件，也不能读取目录。"
+        "读取成功或业务失败均返回 HTTP 200；请检查 success，"
+        "失败原因见 error.code 和 error.message。"
     ),
     response_model=LoadResourceResponse,
-    response_description="资源所属技能、相对路径和文本内容。",
-    responses={
-        HTTPStatus.BAD_REQUEST: {
-            "model": ErrorResponse,
-            "description": "缺少参数，或资源路径逃逸技能根目录。",
-        },
-        HTTPStatus.NOT_FOUND: {
-            "model": ErrorResponse,
-            "description": "技能或资源文件不存在。",
-        },
-    },
+    response_description="读取结果；成功时 content 为文本，失败时 error 包含错误详情。",
     openapi_extra=LOAD_RESOURCE_OPENAPI_EXTRA,
 )
-async def load_resource(request: Request) -> dict[str, str]:
-    skill_name = await _require_string(request, "skill_name")
-    relative_path = await _require_string(request, "relative_path")
-    return {
-        "skill_name": skill_name,
-        "relative_path": relative_path,
-        "content": _load_resource(
-            _registry(request),
-            skill_name,
-            relative_path,
-        ),
-    }
+async def load_resource(request: Request) -> LoadResourceResponse:
+    skill_name = None
+    relative_path = None
+    try:
+        skill_name = await _require_string(request, "skill_name")
+        relative_path = await _require_string(request, "relative_path")
+        content = _load_resource(_registry(request), skill_name, relative_path)
+    except (
+        SkillNotFoundError,
+        ResourceNotFoundError,
+        InvalidResourcePathError,
+        ValueError,
+        OSError,
+    ) as error:
+        if isinstance(error, SkillNotFoundError):
+            code = "skill_not_found"
+        elif isinstance(error, InvalidResourcePathError):
+            code = "invalid_resource_path"
+        elif isinstance(error, (ResourceNotFoundError, FileNotFoundError)):
+            code = "resource_not_found"
+        elif isinstance(error, IsADirectoryError):
+            code = "resource_not_file"
+        elif isinstance(error, UnicodeError):
+            code = "invalid_resource_encoding"
+        elif isinstance(error, OSError):
+            code = "resource_read_failed"
+        else:
+            code = "bad_request"
+        return LoadResourceResponse(
+            success=False,
+            skill_name=skill_name,
+            relative_path=relative_path,
+            error=ErrorDetail(code=code, message=str(error)),
+        )
+
+    return LoadResourceResponse(
+        success=True,
+        skill_name=skill_name,
+        relative_path=relative_path,
+        content=content,
+    )
 
 
 @router.post(

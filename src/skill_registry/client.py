@@ -76,7 +76,11 @@ class SkillRegistryClient:
                 f"Skill Registry 返回的数据结构无效：{url}"
             )
 
-        if not response.ok or "error" in data:
+        if (
+            not response.ok
+            or (path == "/load_resource" and data.get("success") is False)
+            or data.get("error") is not None
+        ):
             registry_error = data.get("error")
 
             if isinstance(registry_error, dict):
@@ -132,7 +136,7 @@ class SkillRegistryClient:
             "skill": skill
         }
 
-    def load_resource(self, skill_name: str, relative_path: str) -> str:
+    def load_resource(self, skill_name: str, relative_path: str) -> dict[str, Any]:
         try:
             skill_name = self._require_string("skill_name", skill_name)
             relative_path = self._require_string("relative_path", relative_path)
