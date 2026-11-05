@@ -195,7 +195,7 @@ async def delete_skill() -> JSONResponse:
     )
 
 
-@router.get(
+@router.post(
     "/search_skills",
     tags=["技能注册表"],
     summary="搜索技能",
