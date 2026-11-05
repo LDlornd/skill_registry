@@ -1,0 +1,56 @@
+name: Publish skill-registry image
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: publish-skill-registry-image
+  cancel-in-progress: false
+
+env:
+  HARBOR_REGISTRY: '120.26.140.44:80'
+  IMAGE_REPOSITORY: thingo-enterprise-agent-platform/skill-registry
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+
+      # Docker login uses the daemon; the Buildx builder also needs its own HTTP configuration.
+      - name: Configure Docker for the HTTP registry
+        uses: docker/setup-docker-action@v4
+        with:
+          daemon-config: |
+            {
+              "insecure-registries": ["${{ env.HARBOR_REGISTRY }}"]
+            }
+
+      - name: Configure Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          buildkitd-config-inline: |
+            [registry."${{ env.HARBOR_REGISTRY }}"]
+              http = true
+
+      - name: Log in to Harbor
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.HARBOR_REGISTRY }}
+          username: ${{ secrets.HARBOR_USERNAME }}
+          password: ${{ secrets.HARBOR_PASSWORD }}
+
+      - name: Build and push linux/amd64 image
+        run: |
+          docker buildx build \
+            --platform linux/amd64 \
+            --tag "${HARBOR_REGISTRY}/${IMAGE_REPOSITORY}:latest" \
+            --push \
+            --progress=plain \
+            .

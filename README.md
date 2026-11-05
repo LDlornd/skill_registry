@@ -100,36 +100,53 @@ skill_registry/
 
 ## Docker 部署
 
-Dockerfile 直接安装 `skill-registry` Python 包，不进行 Nuitka 编译。构建上下文只包含项目安装需要的 `pyproject.toml`、`README.md`、`LICENSE` 和 `src/`。技能文件不打入镜像；启动时用 bind mount 将 **Docker 主机**上的技能目录挂载为容器内的 `/skills`，服务通过 `SKILLS_DIR=/skills` 扫描它。`HOST_SKILLS_DIR` 必须是 Docker 主机上已存在的绝对路径。每个技能目录需要有 `SKILL.md`，例如 `/srv/skills/my-skill/SKILL.md`。
+维护者手动触发 GitHub Actions 发布镜像。测试人员从内网 Harbor 拉取 `172.16.0.131/thingo-enterprise-agent-platform/skill-registry:latest`，直接用 `docker run` 启动，无需克隆源码或复制 `compose.yaml`。
 
-在项目目录构建并启动本地镜像（PowerShell）：
+### 手动发布镜像
 
-```powershell
-cd E:\lornd\skill_registry
-docker build -t skill-registry:local .
-$env:HOST_SKILLS_DIR = 'E:\path\to\skills'
-docker compose up -d
-Invoke-RestMethod http://127.0.0.1:5000/search_skills
+首次使用，在本仓库的 **Settings → Secrets and variables → Actions** 添加 `HARBOR_USERNAME` 和 `HARBOR_PASSWORD`，使用有 `thingo-enterprise-agent-platform` 项目推送权限的账号和密码或机器人令牌。隔壁仓库的 Secrets 不会自动共享。
+
+将 [工作流](.github/workflows/publish-image.yml) 提交到默认分支 `main`。之后推送待发布的代码，进入 **Actions → Publish skill-registry image → Run workflow**，选择要发布的分支并运行。普通 `git push` 不会触发发布。
+
+工作流用现有 Dockerfile 构建 `linux/amd64` 镜像，并通过 `agent-network` 工作流使用的地址推送到 `120.26.140.44:80/thingo-enterprise-agent-platform/skill-registry:latest`。运行成功后，在构建日志中查看推送的 digest。每次发布会更新同一标签，测试机上的容器由同事自行更新。镜像包含服务源码；`.env` 和宿主机上的技能文件不打入镜像。
+
+测试命令假设 `120.26.140.44:80` 和 `172.16.0.131` 是同一个 Harbor 的发布和拉取入口。首次发布后，在测试机拉取并比较输出的 digest 与 Actions 日志是否一致。
+
+### 拉取并启动测试容器
+
+在能访问 Harbor 的 Linux amd64 Docker 主机上执行。若内网 Harbor 使用 HTTP，先按 [Docker 文档](https://docs.docker.com/reference/cli/dockerd/#insecure-registries) 将 `172.16.0.131` 加入测试机 Docker daemon 的 `insecure-registries`。私有镜像需先用有拉取权限的账号运行 `docker login 172.16.0.131`。在运行命令的目录创建 `.env`，例如：
+
+```dotenv
+SKILLS_REFRESH_INTERVAL=1
 ```
 
-如果 Docker 运行在 Linux 服务器上，可只把 `compose.yaml` 放到服务器，再指定已推送的镜像和服务器上的技能目录：
+将 `HOST_SKILLS_DIR` 改为 **Docker 主机**上已存在的技能目录的绝对路径，例如 `/srv/skills`，其中可放置 `/srv/skills/my-skill/SKILL.md`。`--env-file` 只为容器设置环境变量；挂载源路径和主机端口在 `docker run` 命令中设置。镜像已设置 `SKILLS_DIR=/skills`、`HOST=0.0.0.0` 和 `PORT=5000`。
 
 ```sh
-export REGISTRY_IMAGE='your-dockerhub-user/skill-registry:0.1.0'
-export HOST_SKILLS_DIR='/srv/skills'
-docker compose up -d
+IMAGE=172.16.0.131/thingo-enterprise-agent-platform/skill-registry:latest
+HOST_SKILLS_DIR=/srv/skills
+docker pull "$IMAGE"
 ```
 
-服务默认只在 Docker 主机的 `127.0.0.1:5000` 提供服务，文档位于 `http://127.0.0.1:5000/docs`。可用 `REGISTRY_PORT` 修改主机端口。现有 API 没有鉴权，并提供 `/discover_skills` 和 `/execute_resource`；若要从别的机器访问，应先设置网络访问控制或带鉴权的反向代理，再将 `REGISTRY_BIND_ADDRESS` 设为 `0.0.0.0`。
+拉取成功后，如果旧服务由 Compose 启动，先到原部署目录用原来的环境配置执行 `docker compose stop skill-registry`，释放主机端口。如果已有用 `docker run` 创建的同名容器，先执行 `docker stop skill-registry && docker rm skill-registry`。然后在 `.env` 所在目录运行：
 
-挂载默认只读。容器以 UID 10001 运行，主机目录及文件需要允许该用户读取，目录还需要允许遍历。技能脚本不能写入 `/skills`；如需写文件，应另行挂载输出目录并配置权限。技能目录变动仍由现有自动刷新机制读取。`.py` 技能资源会使用容器内运行服务的 Python 解释器执行。
-
-如需把镜像推送到 Docker Hub，可在构建后执行：
-
-```powershell
-docker login
-docker tag skill-registry:local your-dockerhub-user/skill-registry:0.1.0
-docker push your-dockerhub-user/skill-registry:0.1.0
+```sh
+docker run -d \
+  --name skill-registry \
+  --restart unless-stopped \
+  -p 127.0.0.1:5000:5000 \
+  -e TZ=Asia/Shanghai \
+  --env-file ./.env \
+  --mount "type=bind,source=$HOST_SKILLS_DIR,target=/skills,readonly" \
+  "$IMAGE"
 ```
 
-**源码可见性：**最终镜像包含 `skill_registry` 的 `.py` 模块。`.dockerignore` 排除了 `.env` 等无关构建文件，技能目录也未打入镜像，但公开镜像的拉取者可以查看注册中心源码。若源码不应公开，请使用 Docker Hub 私有仓库或其他私有镜像仓库。
+以后更新也是先 `docker pull`，成功后停掉并删除旧容器，再用同一条 `docker run` 命令启动。只执行 `docker restart` 仍会使用旧镜像。技能文件在宿主机上，重建容器后继续挂载同一目录；容器以 UID 10001 运行，需能读取文件、遍历目录。技能目录变动仍会自动刷新。技能脚本需要写文件时，可另行挂载可写的输出目录。
+
+启动后访问 `http://127.0.0.1:5000/docs`，应看到 API 文档。也可用已挂载的技能验证扫描结果，将 `my-skill` 替换为实际技能名：
+
+```sh
+curl -fsS 'http://127.0.0.1:5000/load_skill?skill_name=my-skill'
+```
+
+预期返回 HTTP 200 和 `skill` 对象。要修改主机端口，可将 `-p` 改为 `127.0.0.1:5001:5000`。服务默认只对 Docker 主机本机开放；API 未鉴权且可执行技能资源，如需允许其他机器访问，应先配置网络访问控制或带鉴权的反向代理，再调整端口绑定。
